@@ -215,7 +215,7 @@ function addPlayer(room, name, req) {
     pid: crypto.randomBytes(12).toString('hex'), // secret, known only to that player
     n: ++room.counter,                            // public number
     name, ip: ipOf(req), wins: 0, streams: new Set(), away: null,
-    label: '', done: false, dnf: false, score: null
+    label: '', pct: null, done: false, dnf: false, score: null
   };
   room.players.set(p.pid, p);
   if (!room.host) room.host = p.n;
@@ -227,11 +227,11 @@ function addPlayer(room, name, req) {
 function snapshot(room) {
   return {
     code: room.code, state: room.state, now: Date.now(), host: room.host,
-    game: room.game, better: room.better, seed: room.seed, startAt: room.startAt,
+    game: room.game, better: room.better, seed: room.seed, startAt: room.startAt, endsAt: room.endsAt,
     round: room.round, winners: room.winners,
     players: [...room.players.values()].map(p => ({
       n: p.n, name: p.name, wins: p.wins, on: p.streams.size > 0,
-      label: p.label, done: p.done, dnf: p.dnf, score: p.score
+      label: p.label, pct: p.pct, done: p.done, dnf: p.dnf, score: p.score
     }))
   };
 }
@@ -311,7 +311,7 @@ async function api(req, res, url) {
     checkAgent(req);
     const room = {
       code: newCode(), state: 'lobby', players: new Map(), counter: 0, host: 0,
-      game: '', better: 'high', seed: 0, startAt: 0, round: 0, winners: [],
+      game: '', better: 'high', seed: 0, startAt: 0, endsAt: 0, round: 0, winners: [],
       deadline: null, touched: Date.now(), created: Date.now()
     };
     rooms.set(room.code, room);
@@ -391,9 +391,10 @@ async function api(req, res, url) {
     room.winners = [];
     room.startAt = Date.now() + COUNTDOWN_MS;
     room.state = 'playing';
-    for (const x of room.players.values()) { x.label = ''; x.done = false; x.dnf = false; x.score = null; }
+    for (const x of room.players.values()) { x.label = ''; x.pct = null; x.done = false; x.dnf = false; x.score = null; }
     clearTimeout(room.deadline);
-    room.deadline = setTimeout(() => settle(room, true), COUNTDOWN_MS + secs * 1000 + 8000);
+    room.endsAt = room.startAt + secs * 1000 + 8000;
+    room.deadline = setTimeout(() => settle(room, true), room.endsAt - Date.now());
     record('round', req, { room: room.code, game, players: room.players.size });
     broadcast(room);
     return json(res, 200, {});
@@ -402,6 +403,7 @@ async function api(req, res, url) {
   if (action === 'progress') {
     if (room.state !== 'playing' || body.round !== room.round || p.done) return json(res, 200, {});
     if (typeof body.label === 'string') p.label = body.label.slice(0, 24);
+    if (typeof body.pct === 'number' && isFinite(body.pct)) p.pct = Math.max(0, Math.min(1, body.pct));
     if (body.done) {
       p.done = true;
       p.dnf = !!body.dnf || typeof body.score !== 'number' || !isFinite(body.score);

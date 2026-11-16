@@ -33,7 +33,7 @@ W.register({
       if (+tile.dataset.i === next) {
         tile.classList.add('done');
         next++;
-        ctx.progress(`${next} of ${labels.length}`);
+        ctx.progress(`${next} of ${labels.length}`, next / labels.length);
         if (next === labels.length) {
           return ctx.end({ score: Math.round(elapsed() * 10) / 10, errors });
         }

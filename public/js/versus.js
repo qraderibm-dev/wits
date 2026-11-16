@@ -8,6 +8,7 @@ W.versus = (() => {
   let code = '', pid = '', myN = 0;
   let es = null, snap = null, offset = 0;
   let launched = 0, finished = 0, inGame = false, ticker = 0, error = '';
+  let myResult = null;   // what I scored this round, shown while the others finish
 
   async function post(path, body) {
     let res;
@@ -176,10 +177,11 @@ W.versus = (() => {
     W.play(game, {
       versus: true,
       seed: snap.seed,
-      onProgress: label => send('progress', { round, label })
+      onProgress: (label, pct) => send('progress', { round, label, pct })
     }, result => {
       inGame = false;
       finished = round;
+      myResult = result;
       send('progress', { round, done: true, dnf: !result, score: result ? result.score : null });
       W.show('versus');
       render();
@@ -190,8 +192,9 @@ W.versus = (() => {
   function rivals() {
     const game = W.byId[snap.game];
     $('rivals').innerHTML = snap.players.filter(p => p.n !== myN).map(p => {
-      const now = p.dnf ? 'left' : p.done ? game.fmt(p.score) : (p.label || 'playing');
-      return `<span>${esc(p.name)}<b>${esc(now)}</b></span>`;
+      const now = p.dnf ? 'out' : p.done ? 'finished, ' + game.fmt(p.score) : (p.label || 'playing');
+      const bar = !p.done && p.pct != null ? `<span class="track"><i style="width:${Math.round(p.pct * 100)}%"></i></span>` : '';
+      return `<span class="rival ${p.done && !p.dnf ? 'fin' : ''}">${esc(p.name)}<b>${esc(now)}</b>${bar}</span>`;
     }).join('');
   }
 
@@ -223,10 +226,24 @@ W.versus = (() => {
 
     if (snap.state === 'playing' && game) {
       const waiting = me().done || finished === snap.round;
-      html = `<h2>${esc(game.name)}</h2>` + (waiting
-        ? '<p>You’re done. Waiting for the others to finish.</p>'
-        : `<p>${esc(game.versusNote)} Starting in</p><div class="code count" id="vcount">3</div>`) +
-        (waiting ? board(game) : '');
+      if (!waiting) {
+        html = `<h2>${esc(game.name)}</h2>
+          <p>${esc(game.versusNote)} Starting in</p><div class="code count" id="vcount">3</div>
+          <ol class="rows">${snap.players.map(p => `<li><span class="grow strong">${esc(p.name)}${p.n === myN ? ' (you)' : ''}</span>
+            <span>${p.on ? 'ready' : 'away'}</span></li>`).join('')}</ol>`;
+      } else {
+        const mine = myResult && finished === snap.round ? myResult.score : me().score;
+        const done = snap.players.filter(p => p.done).length;
+        const still = snap.players.length - done;
+        html = `<h2>${esc(game.name)}</h2>` +
+          (typeof mine === 'number'
+            ? `<div class="index"><b>${esc(Number(mine).toFixed(game.decimals || 0))}</b>${esc(game.unit)}, your result</div>`
+            : '<p>You left this round without a score.</p>') +
+          `<p>${still
+            ? `<strong>${still}</strong> still playing. Watch them below. The round closes in <strong id="vleft">${left()}</strong> at the latest.`
+            : 'Everyone is done. Working out the winner.'}</p>` +
+          board(game);
+      }
     }
 
     if (snap.state === 'results' && game) {
@@ -237,27 +254,41 @@ W.versus = (() => {
       html = `<h2>${esc(title)}</h2>
         <p>${esc(game.name)}. ${esc(game.versusNote)}</p>
         ${board(game)}
-        ${host ? '<button class="go" data-act="lobby">Pick the next game</button>'
-               : `<p>Waiting for ${esc(nameOf(snap.host))} to pick the next game.</p>`}
+        ${host ? `<button class="go" data-pick="${game.id}">Play ${esc(game.name)} again</button>
+                  <button class="go quiet" style="margin-top:14px" data-act="lobby">Pick another game</button>`
+               : `<p>Waiting for ${esc(nameOf(snap.host))} to start the next round.</p>`}
         <button class="link center" data-act="leave">Leave room</button>`;
     }
 
     $('versus').innerHTML = `<div class="col">${html}</div>`;
   }
 
+  // Time until the server closes the round, as m:ss.
+  function left() {
+    const s = Math.max(0, Math.ceil((snap.endsAt - (Date.now() + offset)) / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+  setInterval(() => { if (snap && $('vleft')) $('vleft').textContent = left(); }, 500);
+
   // Scoreboard: finished players best-first, then everyone else.
   function board(game) {
     const fin = snap.players.filter(p => p.done && !p.dnf && typeof p.score === 'number')
       .sort((a, b) => game.better === 'low' ? a.score - b.score : b.score - a.score);
     const rest = snap.players.filter(p => !fin.includes(p));
+    const over = snap.state === 'results';
     const row = p => {
-      const now = p.dnf ? 'did not finish' : p.done ? game.fmt(p.score) : (p.label || 'playing');
-      const won = snap.state === 'results' && snap.winners.includes(p.n);
-      return `<li class="${won ? 'win' : ''}">
+      const place = fin.indexOf(p) + 1;
+      const live = !p.done;
+      const now = p.dnf ? 'did not finish' : p.done ? game.fmt(p.score) : (p.label || 'just started');
+      // While the round is on, the current leader is highlighted; afterwards, the winner.
+      const top = over ? snap.winners.includes(p.n) : place === 1;
+      return `<li class="${top ? 'win' : ''} ${live ? 'live' : ''}" style="--pct:${live && p.pct != null ? Math.round(p.pct * 100) : 0}%">
+        <span class="place">${place || (live ? '<i class="dot"></i>' : '')}</span>
         <span class="grow strong">${esc(p.name)}${p.n === myN ? ' (you)' : ''}</span>
-        <span class="strong">${esc(now)}</span></li>`;
+        <span class="${live ? '' : 'strong'}">${live ? 'playing, ' : ''}${esc(now)}</span>
+        ${over ? `<span class="num">${p.wins} ${p.wins === 1 ? 'win' : 'wins'}</span>` : ''}</li>`;
     };
-    return `<ol class="rows">${fin.concat(rest).map(row).join('')}</ol>`;
+    return `<ol class="rows race">${fin.concat(rest).map(row).join('')}</ol>`;
   }
 
   // ---------- buttons ----------

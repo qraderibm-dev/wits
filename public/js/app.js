@@ -51,7 +51,8 @@
         bar.firstElementChild.style.animationDuration = ms + 'ms';
         bar.classList.add('run');
       },
-      progress(label) { if (opts.onProgress) opts.onProgress(label); },
+      // label: short live status for the other players. pct: 0 to 1, if the game has a finish line.
+      progress(label, pct) { if (opts.onProgress) opts.onProgress(label, pct); },
       end(result) { if (r.alive) finish(result); }
     };
 

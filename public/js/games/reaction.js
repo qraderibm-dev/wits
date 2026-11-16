@@ -46,7 +46,7 @@ W.register({
         const ms = Math.round(now - t0);
         times.push(ms);
         stats();
-        ctx.progress(`${times.length} of ${TRIES}`);
+        ctx.progress(`${times.length} of ${TRIES}`, times.length / TRIES);
         if (times.length === TRIES) {
           const avg = Math.round(times.reduce((a, b) => a + b, 0) / TRIES);
           return ctx.end({ score: avg, fastest: Math.min(...times) });
