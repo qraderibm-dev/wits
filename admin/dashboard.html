@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#22403a">
+<title>Wits dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Fraunces:opsz,wght,SOFT@9..144,400..900,0..100&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { user-select: text; -webkit-user-select: text; }
+  .wide { width: 100%; max-width: 1040px; margin: 0 auto; }
+  .wide h1 {
+    font-family: var(--display); font-variation-settings: "SOFT" 100;
+    font-weight: 900; font-size: clamp(44px, 9vw, 72px); line-height: .95; letter-spacing: -.025em; margin: 0 0 6px;
+  }
+  .wide h2 {
+    font-family: var(--display); font-variation-settings: "SOFT" 100;
+    font-weight: 800; font-size: 24px; margin: 40px 0 4px;
+  }
+  .wide p { color: var(--haze); font-size: 15px; line-height: 1.5; margin: 0 0 12px; max-width: 70ch; }
+  .now { display: flex; flex-wrap: wrap; gap: 14px 36px; margin: 22px 0 0; }
+  .now .stat b { font-size: 44px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--field-deep); vertical-align: top; white-space: nowrap; }
+  th { color: var(--haze); font-weight: 600; border-bottom-width: 2px; }
+  td.num, th.num { text-align: right; }
+  td.wrap { white-space: normal; min-width: 200px; color: var(--haze); }
+  td.ip { font-weight: 700; }
+  .bad { color: #f3a797; }
+  .ok { color: var(--sun); }
+  .dim { color: var(--haze); }
+  .empty { color: var(--haze); font-size: 15px; padding: 10px 0; }
+  .block {
+    border: 1.5px solid var(--haze); border-radius: 8px; background: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; padding: 3px 10px; color: var(--card);
+  }
+  .block.on { border-color: #f3a797; color: #f3a797; }
+</style>
+</head>
+<body>
+<main class="view page">
+  <div class="wide">
+    <h1>Dashboard</h1>
+    <p id="updated">Loading.</p>
+    <div class="now" id="now"></div>
+
+    <h2>Active rooms</h2>
+    <p>Rooms that exist right now, with each player’s address.</p>
+    <div class="scroll" id="rooms"></div>
+
+    <h2>Flags</h2>
+    <p>Things that look automated: a browser that names itself as a script, too many requests from one address, a score no person could get, or a wrong dashboard key. Impossible scores are thrown out of the round automatically.</p>
+    <div class="scroll" id="flags"></div>
+
+    <h2>Visitors by address</h2>
+    <p>Most recent first. Blocking an address stops it creating or joining rooms. It can still open the site and play alone.</p>
+    <div class="scroll" id="ips"></div>
+
+    <h2>Last 14 days</h2>
+    <p>Days are counted in UTC.</p>
+    <div class="scroll" id="days"></div>
+
+    <h2>Rounds by game</h2>
+    <div class="scroll" id="games"></div>
+
+    <h2>Recent activity</h2>
+    <div class="scroll" id="recent"></div>
+  </div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const time = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const when = t => esc(time.format(new Date(t)));
+  const ago = t => {
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
+  };
+  const table = (head, rows, empty) => rows.length
+    ? `<table><thead><tr>${head.map(h => `<th class="${h[1] || ''}">${h[0]}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`
+    : `<div class="empty">${empty}</div>`;
+
+  const WHAT = {
+    visit: () => 'Opened the site',
+    room: e => `Created room ${esc(e.room)} as ${esc(e.name)}`,
+    join: e => `Joined room ${esc(e.room)} as ${esc(e.name)}`,
+    round: e => `Started ${esc(e.game)} in room ${esc(e.room)} with ${esc(e.players)} players`,
+    finish: e => `${esc(e.name)} finished ${esc(e.game)} in room ${esc(e.room)}` + (e.score == null ? ' without a score' : ` with ${esc(e.score)}`),
+    flag: e => `<span class="bad">Flagged: ${esc(e.reason)}${e.detail ? ' (' + esc(e.detail) + ')' : ''}</span>`
+  };
+  const STATE = { lobby: 'In the lobby', playing: 'Playing', results: 'Showing results' };
+
+  function render(d) {
+    const today = d.days[0] && d.days[0].day === new Date(d.now).toISOString().slice(0, 10) ? d.days[0] : { visits: 0, visitors: 0, rooms: 0, rounds: 0, flags: 0 };
+    $('updated').textContent = `Updated ${time.format(new Date())}. Refreshes every 5 seconds.`;
+    $('now').innerHTML = [
+      [d.live.players, 'players connected'], [d.live.rooms, 'active rooms'],
+      [today.visitors, 'visitors today'], [today.visits, 'visits today'],
+      [today.rounds, 'rounds today'], [today.flags, 'flags today']
+    ].map(([v, l]) => `<span class="stat"><b>${v}</b>${l}</span>`).join('');
+
+    $('rooms').innerHTML = table(
+      [['Room'], ['Status'], ['Game'], ['Opened'], ['Players and addresses']],
+      d.rooms.map(r => `<tr><td class="ip">${esc(r.code)}</td><td>${STATE[r.state] || esc(r.state)}</td>
+        <td>${esc(r.game || 'none yet')}</td><td>${ago(r.since)}</td>
+        <td>${r.players.map(p => `${esc(p.name)}${p.host ? ' (host)' : ''} <span class="dim">${esc(p.ip)}${p.on ? '' : ', away'}</span>`).join('<br>')}</td></tr>`),
+      'No rooms are open right now.');
+
+    $('flags').innerHTML = table(
+      [['When'], ['Address'], ['Reason'], ['Detail']],
+      d.flags.map(e => `<tr><td>${when(e.t)}</td><td class="ip">${esc(e.ip)}</td>
+        <td class="bad">${esc(e.reason)}</td><td class="wrap">${esc(e.detail || e.ua)}</td></tr>`),
+      'Nothing has been flagged.');
+
+    $('ips').innerHTML = table(
+      [['Address'], ['Last seen'], ['Visits', 'num'], ['Rooms', 'num'], ['Joins', 'num'], ['Flags', 'num'], ['Names used'], ['Browser'], ['']],
+      d.ips.map(v => `<tr><td class="ip">${esc(v.ip)}</td><td>${ago(v.last)}</td>
+        <td class="num">${v.visits}</td><td class="num">${v.rooms}</td><td class="num">${v.joins}</td>
+        <td class="num ${v.flags ? 'bad' : ''}">${v.flags}</td>
+        <td>${esc(v.names.join(', '))}</td><td class="wrap">${esc(v.ua)}</td>
+        <td><button class="block ${v.blocked ? 'on' : ''}" data-ip="${esc(v.ip)}" data-on="${v.blocked ? '' : '1'}">${v.blocked ? 'Unblock' : 'Block'}</button></td></tr>`),
+      'No visitors recorded yet.');
+
+    $('days').innerHTML = table(
+      [['Day'], ['Visitors', 'num'], ['Visits', 'num'], ['Rooms created', 'num'], ['Rounds played', 'num'], ['Flags', 'num']],
+      d.days.map(x => `<tr><td>${esc(x.day)}</td><td class="num">${x.visitors}</td><td class="num">${x.visits}</td>
+        <td class="num">${x.rooms}</td><td class="num">${x.rounds}</td><td class="num ${x.flags ? 'bad' : ''}">${x.flags}</td></tr>`),
+      'Nothing recorded yet.');
+
+    $('games').innerHTML = table(
+      [['Game'], ['Rounds played with friends', 'num']],
+      d.games.map(g => `<tr><td>${esc(g.game)}</td><td class="num">${g.rounds}</td></tr>`),
+      'No rounds have been played yet.');
+
+    $('recent').innerHTML = table(
+      [['When'], ['Address'], ['What happened']],
+      d.recent.map(e => `<tr><td>${when(e.t)}</td><td class="ip">${esc(e.ip)}</td><td>${(WHAT[e.type] || (() => esc(e.type)))(e)}</td></tr>`),
+      'Nothing recorded yet.');
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('/api/admin/stats', { cache: 'no-store' });
+      if (!res.ok) throw 0;
+      render(await res.json());
+    } catch {
+      $('updated').textContent = 'Could not load. Your sign-in may have expired: open the dashboard link with your key again.';
+    }
+  }
+
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('.block');
+    if (!b) return;
+    if (b.dataset.on && !confirm(`Block ${b.dataset.ip} from creating or joining rooms?`)) return;
+    await fetch('/api/admin/block', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: b.dataset.ip, on: !!b.dataset.on })
+    });
+    load();
+  });
+
+  load();
+  setInterval(load, 5000);
+})();
+</script>
+</body>
+</html>

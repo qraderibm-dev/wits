@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#22403a">
+<title>Wits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Fraunces:opsz,wght,SOFT@9..144,400..900,0..100&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="view page" id="home"></main>
+  <main class="view page" id="game" hidden></main>
+  <main class="view page" id="result" hidden></main>
+  <main class="view page" id="versus" hidden></main>
+
+  <div class="view play" id="play" hidden>
+    <header class="hud">
+      <button class="link" id="quit">End game</button>
+      <span class="stat" id="stat1"></span>
+      <span class="stat" id="stat2"></span>
+    </header>
+    <p class="hint" id="hint" aria-live="polite"></p>
+    <div class="bar" id="bar"><span></span></div>
+    <div class="rivals" id="rivals"></div>
+    <div class="stage" id="stage"></div>
+  </div>
+
+  <!-- To add a game: write public/js/games/<name>.js that calls W.register(), and list it here. -->
+  <script src="js/core.js"></script>
+  <script src="js/games/vanish.js"></script>
+  <script src="js/games/reaction.js"></script>
+  <script src="js/games/stroop.js"></script>
+  <script src="js/games/span.js"></script>
+  <script src="js/games/trail.js"></script>
+  <script src="js/versus.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

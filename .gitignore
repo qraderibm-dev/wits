@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+
+# visitor log, blocked list and dashboard key (contains IP addresses)
+data/
+
+# secrets and local settings
+.env
+.env.*
+.claude/
+
+# logs and editor/OS clutter
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

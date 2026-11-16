@@ -1,0 +1,12 @@
+{
+  "name": "wits",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Short brain games with rooms for playing against friends",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
