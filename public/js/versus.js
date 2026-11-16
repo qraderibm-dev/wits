@@ -86,13 +86,53 @@ W.versus = (() => {
       offset = snap.now - Date.now();
       onSnap();
     };
-    es.addEventListener('gone', () => drop('That room has closed.'));
+    es.addEventListener('gone', rejoin);
+    keepAwake();
+  }
+
+  // The server no longer knows us (we were away too long). If the room is
+  // still there, quietly take a seat again under the same name.
+  let rejoining = false;
+  async function rejoin() {
+    if (es) es.close();
+    const name = W.store.get('name');
+    if (rejoining || !name || !code) return drop('That room has closed.');
+    rejoining = true;
+    try {
+      const r = await post(`/${code}/join`, { name });
+      pid = r.pid; myN = r.n;
+      remember();
+      connect();
+    } catch (e) {
+      drop(/No room/.test(e.message) ? 'That room has closed.' : e.message);
+    }
+    rejoining = false;
+  }
+
+  // Phones freeze the page in the background. Reconnect the moment we are back.
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (!code) return;
+    keepAwake();
+    if ((es && es.readyState === 2) || Date.now() - hiddenAt > 4000) connect();
+  });
+  window.addEventListener('online', () => { if (code) connect(); });
+
+  // Stop the screen dimming and locking while in a room, where the browser allows it.
+  let wake = null;
+  async function keepAwake() {
+    try {
+      if (!code || !navigator.wakeLock || (wake && !wake.released)) return;
+      wake = await navigator.wakeLock.request('screen');
+    } catch {}
   }
 
   function drop(message) {
     if (es) es.close();
     es = null; snap = null; code = pid = ''; myN = 0;
     clearInterval(ticker); ticker = 0;
+    if (wake) { wake.release().catch(() => {}); wake = null; }
     forget();
     if (inGame) { W.abortPlay(); inGame = false; }
     error = message || '';
@@ -172,7 +212,7 @@ W.versus = (() => {
         <h3>Players</h3>
         <ol class="rows">${snap.players.map(p => `<li>
           <span class="grow strong">${esc(p.name)}${p.n === myN ? ' (you)' : ''}</span>
-          <span>${p.n === snap.host ? 'host' : ''}${p.on ? '' : ' away'}</span>
+          <span>${p.n === snap.host ? 'host' : ''}${p.on ? '' : ' away, may come back'}</span>
           <span class="num">${p.wins} ${p.wins === 1 ? 'win' : 'wins'}</span></li>`).join('')}</ol>` +
         (host
           ? `<h3>${enough ? 'Pick a game to start the round' : 'Waiting for at least one more player'}</h3>

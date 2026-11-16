@@ -9,7 +9,9 @@ const PORT = process.env.PORT || 8000;
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_PLAYERS = 8;
 const COUNTDOWN_MS = 4000;
-const AWAY_MS = 45000;          // a player who stays disconnected this long is removed
+const AWAY_MS = 10 * 60000;     // a player who stays disconnected this long is removed
+const HOST_AWAY_MS = 30000;     // a disconnected host hands the room to someone else after this
+const NEVER_CAME_MS = 60000;    // someone who joined but never connected is removed after this
 const IDLE_MS = 3 * 3600000;    // rooms untouched this long are deleted
 
 const TYPES = {
@@ -218,7 +220,7 @@ function addPlayer(room, name, req) {
   room.players.set(p.pid, p);
   if (!room.host) room.host = p.n;
   // Dropped again if they never actually connect.
-  p.away = setTimeout(() => removePlayer(room, p), AWAY_MS);
+  p.away = setTimeout(() => removePlayer(room, p), NEVER_CAME_MS);
   return p;
 }
 
@@ -242,6 +244,7 @@ function broadcast(room) {
 
 function removePlayer(room, p) {
   clearTimeout(p.away);
+  clearTimeout(p.hostAway);
   for (const res of p.streams) res.end();
   room.players.delete(p.pid);
   if (!room.players.size) {
@@ -328,11 +331,26 @@ async function api(req, res, url) {
     const p = room && room.players.get(url.searchParams.get('pid'));
     if (!p) return res.end('event: gone\ndata: {}\n\n');
     clearTimeout(p.away);
+    clearTimeout(p.hostAway);
     p.streams.add(res);
-    req.on('close', () => {
+    res.on('close', () => {
       p.streams.delete(res);
       if (!room.players.has(p.pid)) return;
-      if (!p.streams.size) p.away = setTimeout(() => removePlayer(room, p), AWAY_MS);
+      if (!p.streams.size) {
+        // Phones drop the connection whenever the browser goes to the background
+        // or the screen locks, so keep their place for a good while.
+        clearTimeout(p.away);
+        p.away = setTimeout(() => removePlayer(room, p), AWAY_MS);
+        // But do not leave the room stuck waiting on a host who is not there.
+        clearTimeout(p.hostAway);
+        p.hostAway = setTimeout(() => {
+          if (p.streams.size || room.host !== p.n || !room.players.has(p.pid)) return;
+          const here = [...room.players.values()].filter(x => x.streams.size);
+          if (!here.length) return;
+          room.host = Math.min(...here.map(x => x.n));
+          broadcast(room);
+        }, HOST_AWAY_MS);
+      }
       if (!settle(room)) broadcast(room);
     });
     return broadcast(room);
