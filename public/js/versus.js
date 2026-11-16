@@ -182,7 +182,7 @@ W.versus = (() => {
       inGame = false;
       finished = round;
       myResult = result;
-      send('progress', { round, done: true, dnf: !result, score: result ? result.score : null });
+      send('progress', { round, done: true, dnf: !result, score: result ? result.score : null, secs: result ? result.secs : null });
       W.show('versus');
       render();
     });
@@ -192,7 +192,7 @@ W.versus = (() => {
   function rivals() {
     const game = W.byId[snap.game];
     $('rivals').innerHTML = snap.players.filter(p => p.n !== myN).map(p => {
-      const now = p.dnf ? 'out' : p.done ? 'finished, ' + game.fmt(p.score) : (p.label || 'playing');
+      const now = p.dnf ? 'out' : p.done ? 'finished, ' + scoreText(game, p) : (p.label || 'playing');
       const bar = !p.done && p.pct != null ? `<span class="track"><i style="width:${Math.round(p.pct * 100)}%"></i></span>` : '';
       return `<span class="rival ${p.done && !p.dnf ? 'fin' : ''}">${esc(p.name)}<b>${esc(now)}</b>${bar}</span>`;
     }).join('');
@@ -263,6 +263,9 @@ W.versus = (() => {
     $('versus').innerHTML = `<div class="col">${html}</div>`;
   }
 
+  // A finished player's score, with the time played where the game uses it.
+  const scoreText = (game, p) => game.fmt(p.score) + (game.showTime && p.secs != null ? ` in ${W.clock(p.secs)}` : '');
+
   // Time until the server closes the round, as m:ss.
   function left() {
     const s = Math.max(0, Math.ceil((snap.endsAt - (Date.now() + offset)) / 1000));
@@ -273,13 +276,13 @@ W.versus = (() => {
   // Scoreboard: finished players best-first, then everyone else.
   function board(game) {
     const fin = snap.players.filter(p => p.done && !p.dnf && typeof p.score === 'number')
-      .sort((a, b) => game.better === 'low' ? a.score - b.score : b.score - a.score);
+      .sort((a, b) => (game.better === 'low' ? a.score - b.score : b.score - a.score) || (a.secs || 0) - (b.secs || 0));
     const rest = snap.players.filter(p => !fin.includes(p));
     const over = snap.state === 'results';
     const row = p => {
       const place = fin.indexOf(p) + 1;
       const live = !p.done;
-      const now = p.dnf ? 'did not finish' : p.done ? game.fmt(p.score) : (p.label || 'just started');
+      const now = p.dnf ? 'did not finish' : p.done ? scoreText(game, p) : (p.label || 'just started');
       // While the round is on, the current leader is highlighted; afterwards, the winner.
       const top = over ? snap.winners.includes(p.n) : place === 1;
       return `<li class="${top ? 'win' : ''} ${live ? 'live' : ''}" style="--pct:${live && p.pct != null ? Math.round(p.pct * 100) : 0}%">

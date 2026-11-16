@@ -19,6 +19,7 @@
     const timers = new Set(), listeners = [];
     const bar = $('bar'), hint = $('hint');
     const r = run = { alive: true };
+    const began = performance.now();
 
     const ctx = {
       stage: $('stage'),
@@ -67,6 +68,7 @@
       $('rivals').innerHTML = '';
     };
     function finish(result) {
+      if (result) result.secs = Math.round((performance.now() - began) / 100) / 10;
       r.teardown();
       run = null;
       onDone(result);

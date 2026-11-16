@@ -33,6 +33,8 @@
   };
 
   W.clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  // Seconds as m:ss.
+  W.clock = secs => `${Math.floor(secs / 60)}:${String(Math.floor(secs % 60)).padStart(2, '0')}`;
   W.esc = s => String(s).replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 

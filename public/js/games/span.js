@@ -5,13 +5,14 @@ W.register({
   how: 'Digits appear one at a time. When they stop, type them back in the same order. Each time you get it right the string grows by one digit. The game ends on your second miss, and your score is the longest string you got right.',
   unit: 'digits',
   better: 'high',
-  versusNote: 'Two misses and you are out. The longest string wins.',
+  versusNote: 'Two misses and you are out. The longest string wins, and a tie goes to whoever took less time.',
+  showTime: true,
   versusSecs: 300,
 
   // 7 digits = 100, ten points per digit.
   index: e => e.score ? W.clamp(Math.round(100 + (e.score - 7) * 10), 60, 160) : 60,
   summary: e => e.score
-    ? `The longest string you got right was ${e.score} digits.`
+    ? `The longest string you got right was ${e.score} digits` + (e.secs ? `, and you played for ${W.clock(e.secs)}.` : '.')
     : 'You did not get a string right this time.',
 
   start(ctx) {
@@ -32,6 +33,8 @@ W.register({
     const entry = ctx.stage.querySelector('.entry');
     const keys = ctx.stage.querySelector('.keys');
     const stats = () => ctx.stats(len, 'digits', MISSES - misses, misses === MISSES - 1 ? 'miss left' : 'misses left');
+    // Tell the room where we are, not only when a string is cleared.
+    const report = () => ctx.progress(`on ${len} digits` + (misses ? `, ${misses} miss` : ''));
 
     function show() {
       entering = false;
@@ -43,6 +46,7 @@ W.register({
         if (d !== seq[seq.length - 1]) seq.push(d);
       }
       stats();
+      report();
       ctx.hint('Watch the digits');
       card.textContent = '';
       let i = 0;
@@ -72,7 +76,6 @@ W.register({
       keys.classList.add('off');
       if (typed === seq.join('')) {
         best = Math.max(best, len);
-        ctx.progress(`${best} digits`);
         len++;
         card.textContent = '✓';
         ctx.hint(`Correct. Next up, ${len} digits.`, 'good');
@@ -80,6 +83,7 @@ W.register({
       } else {
         misses++;
         stats();
+        report();
         card.textContent = '✗';
         entry.textContent = seq.join('');
         ctx.hint('Not quite. The digits are shown below.', 'bad');

@@ -215,7 +215,7 @@ function addPlayer(room, name, req) {
     pid: crypto.randomBytes(12).toString('hex'), // secret, known only to that player
     n: ++room.counter,                            // public number
     name, ip: ipOf(req), wins: 0, streams: new Set(), away: null,
-    label: '', pct: null, done: false, dnf: false, score: null
+    label: '', pct: null, done: false, dnf: false, score: null, secs: null
   };
   room.players.set(p.pid, p);
   if (!room.host) room.host = p.n;
@@ -231,7 +231,7 @@ function snapshot(room) {
     round: room.round, winners: room.winners,
     players: [...room.players.values()].map(p => ({
       n: p.n, name: p.name, wins: p.wins, on: p.streams.size > 0,
-      label: p.label, pct: p.pct, done: p.done, dnf: p.dnf, score: p.score
+      label: p.label, pct: p.pct, done: p.done, dnf: p.dnf, score: p.score, secs: p.secs
     }))
   };
 }
@@ -266,8 +266,9 @@ function settle(room, force) {
   clearTimeout(room.deadline);
   players.forEach(p => { if (!p.done) { p.done = true; p.dnf = true; } });
   const fin = players.filter(p => !p.dnf && typeof p.score === 'number')
-    .sort((a, b) => room.better === 'low' ? a.score - b.score : b.score - a.score);
-  room.winners = fin.filter(p => p.score === fin[0].score).map(p => p.n);
+    // Best score first; on equal scores, whoever played for less time.
+    .sort((a, b) => (room.better === 'low' ? a.score - b.score : b.score - a.score) || (a.secs || 0) - (b.secs || 0));
+  room.winners = fin.filter(p => p.score === fin[0].score && (p.secs || 0) === (fin[0].secs || 0)).map(p => p.n);
   if (room.winners.length === 1) fin[0].wins++;
   room.state = 'results';
   broadcast(room);
@@ -391,7 +392,7 @@ async function api(req, res, url) {
     room.winners = [];
     room.startAt = Date.now() + COUNTDOWN_MS;
     room.state = 'playing';
-    for (const x of room.players.values()) { x.label = ''; x.pct = null; x.done = false; x.dnf = false; x.score = null; }
+    for (const x of room.players.values()) { x.label = ''; x.pct = null; x.done = false; x.dnf = false; x.score = null; x.secs = null; }
     clearTimeout(room.deadline);
     room.endsAt = room.startAt + secs * 1000 + 8000;
     room.deadline = setTimeout(() => settle(room, true), room.endsAt - Date.now());
@@ -408,6 +409,7 @@ async function api(req, res, url) {
       p.done = true;
       p.dnf = !!body.dnf || typeof body.score !== 'number' || !isFinite(body.score);
       p.score = p.dnf ? null : body.score;
+      p.secs = typeof body.secs === 'number' && isFinite(body.secs) ? Math.max(0, Math.min(3600, body.secs)) : null;
       // Throw out results no person could get: too good, or sent before the round began.
       const lim = PLAUSIBLE[room.game] || {};
       if (!p.dnf && (p.score < (lim.min != null ? lim.min : -Infinity) || p.score > (lim.max != null ? lim.max : Infinity)
